@@ -1,6 +1,6 @@
 ﻿namespace AspNetCore.FormsAuthentication
 {
-    public enum ShaVersion
+    public enum ValidationKeyAlgorithm
     {
         Sha1,
         Sha256,

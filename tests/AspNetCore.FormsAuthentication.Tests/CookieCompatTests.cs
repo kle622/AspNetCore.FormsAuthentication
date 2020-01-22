@@ -22,7 +22,12 @@ namespace AspNetCore.FormsAuthentication.Tests
 			byte[] decryptionKeyBytes = HexUtils.HexToBinary(decryptionKey);
 			byte[] validationKeyBytes = HexUtils.HexToBinary(validationKey);
 
-			var legacyFormsAuthenticationTicketEncryptor = new LegacyFormsAuthenticationTicketEncryptor(decryptionKeyBytes, validationKeyBytes);
+			var legacyFormsAuthenticationTicketEncryptor = new FormsAuthenticationTicketEncryptor(
+				decryptionKeyBytes, 
+				validationKeyBytes,
+				DecryptionKeyAlgorithm.Aes,
+				ValidationKeyAlgorithm.Sha1,
+				CompatibilityMode.Framework20SP2);
 
 			// Act
 			// We encrypt the forms auth cookie.

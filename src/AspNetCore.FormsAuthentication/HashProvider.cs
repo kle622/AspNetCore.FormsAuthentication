@@ -12,18 +12,18 @@ namespace AspNetCore.FormsAuthentication
         private byte[] _inner = null;
         private byte[] _outer = null;
 
-        public static HashProvider Create(byte[] validationKey, ShaVersion hashAlgorithm)
+        public static HashProvider Create(byte[] validationKey, ValidationKeyAlgorithm validationKeyAlgorithm)
         {
-            switch (hashAlgorithm)
+            switch (validationKeyAlgorithm)
             {
-                case ShaVersion.Sha1:
+                case ValidationKeyAlgorithm.Sha1:
                     return new Sha1HashProvider(validationKey);
-                case ShaVersion.Sha256:
+                case ValidationKeyAlgorithm.Sha256:
                     return new Sha256HashProvider(validationKey);
-                case ShaVersion.Sha512:
+                case ValidationKeyAlgorithm.Sha512:
                     return new Sha512HashProvider(validationKey);
                 default:
-                    throw new ArgumentOutOfRangeException(nameof(hashAlgorithm));
+                    throw new ArgumentOutOfRangeException(nameof(validationKeyAlgorithm));
             }
         }
 

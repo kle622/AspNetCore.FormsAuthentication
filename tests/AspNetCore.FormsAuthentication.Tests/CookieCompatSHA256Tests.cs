@@ -16,7 +16,12 @@ namespace AspNetCore.FormsAuthentication.Tests
         public void Can_Decrypt_Forms_Authentication_Ticket_WithSha256()
         {
             // Arrange
-            var encryptor = new LegacyFormsAuthenticationTicketEncryptor(SHA256DecryptionKey, SHA256ValidationKey, ShaVersion.Sha256);
+            var encryptor = new FormsAuthenticationTicketEncryptor(
+                SHA256DecryptionKey, 
+                SHA256ValidationKey,
+                DecryptionKeyAlgorithm.Aes,
+                ValidationKeyAlgorithm.Sha256,
+                CompatibilityMode.Framework20SP2);
             var encryptedText = "71AE29F3588ACE8E0097BA62E71B3E3ADC92FBEAFC2CBBD3FC3AC200EB6F78BC85CE111125F1ED0D7F4A54805F06F572A1D5FAD25A4DE014B54D199E6FBAF10A8674107BD78A310E589A49F2ADF6019785AF065C6677CF769D7CB17419D9BCAC35820862DEBC5894B4012B1406DD5B94248FBF87DA197BBE983A2E0A3068B6FDF83B076E387262534F946E1D861EF008EF7F7B630D7851525F1E883C9D973692";
 
             // Act            
@@ -39,7 +44,12 @@ namespace AspNetCore.FormsAuthentication.Tests
             var expiryDateUtc = issueDateUtc.AddHours(1);
             var formsAuthenticationTicket = new FormsAuthenticationTicket(1, "foo@bar.com", issueDateUtc.ToLocalTime(), expiryDateUtc.ToLocalTime(), false, "foo@bar.com", "/");
 
-            var encryptor = new LegacyFormsAuthenticationTicketEncryptor(SHA256DecryptionKey, SHA256ValidationKey, ShaVersion.Sha256);
+            var encryptor = new FormsAuthenticationTicketEncryptor(
+                SHA256DecryptionKey, 
+                SHA256ValidationKey, 
+                DecryptionKeyAlgorithm.Aes,
+                ValidationKeyAlgorithm.Sha256,
+                CompatibilityMode.Framework20SP2);
 
             // Act            
             var encryptedText = encryptor.Encrypt(formsAuthenticationTicket);

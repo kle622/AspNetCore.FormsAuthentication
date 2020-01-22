@@ -4,11 +4,8 @@ using System.Security.Cryptography;
 
 namespace AspNetCore.FormsAuthentication
 {
-    public class LegacyFormsAuthenticationTicketEncryptor
+    public class FormsAuthenticationTicketEncryptor
     {
-        private const ShaVersion DefaultHashAlgorithm = ShaVersion.Sha1;
-        private const CompatibilityMode DefaultCompatibilityMode = CompatibilityMode.Framework20SP2;
-
         private static RandomNumberGenerator _randomNumberGenerator;
         private static RandomNumberGenerator RandomNumberGenerator
         {
@@ -24,28 +21,42 @@ namespace AspNetCore.FormsAuthentication
 
         private byte[] _DecryptionKeyBlob = null;
         private CompatibilityMode _CompatibilityMode;
-
         private HashProvider _hasher;
 
-        public LegacyFormsAuthenticationTicketEncryptor(string decryptionKey, string validationKey, ShaVersion hashAlgorithm = DefaultHashAlgorithm, CompatibilityMode compatibilityMode = DefaultCompatibilityMode)
+        public FormsAuthenticationTicketEncryptor(
+            string decryptionKey, 
+            string validationKey,
+            DecryptionKeyAlgorithm decryptionKeyAlgorithm,
+            ValidationKeyAlgorithm validationKeyAlgorithm, 
+            CompatibilityMode compatibilityMode)
         {
             byte[] descriptionKeyBytes = HexUtils.HexToBinary(decryptionKey);
             byte[] validationKeyBytes = HexUtils.HexToBinary(validationKey);
 
-            Initialize(descriptionKeyBytes, validationKeyBytes, hashAlgorithm, compatibilityMode);
+            Initialize(descriptionKeyBytes, validationKeyBytes, decryptionKeyAlgorithm, validationKeyAlgorithm, compatibilityMode);
         }
 
-        public LegacyFormsAuthenticationTicketEncryptor(byte[] decryptionKey, byte[] validationKey, ShaVersion hashAlgorithm = DefaultHashAlgorithm, CompatibilityMode compatibilityMode = DefaultCompatibilityMode)
+        public FormsAuthenticationTicketEncryptor(
+            byte[] decryptionKey, 
+            byte[] validationKey,
+            DecryptionKeyAlgorithm decryptionKeyAlgorithm,
+            ValidationKeyAlgorithm validationKeyAlgorithm, 
+            CompatibilityMode compatibilityMode)
         {
-            Initialize(decryptionKey, validationKey, hashAlgorithm, compatibilityMode);
+            Initialize(decryptionKey, validationKey, decryptionKeyAlgorithm, validationKeyAlgorithm, compatibilityMode);
         }
 
-        private void Initialize(byte[] decryptionKey, byte[] validationKey, ShaVersion hashAlgorithm, CompatibilityMode compatibilityMode)
+        private void Initialize(
+            byte[] decryptionKey, 
+            byte[] validationKey,
+            DecryptionKeyAlgorithm decryptionKeyAlgorithm,
+            ValidationKeyAlgorithm validationKeyAlgorithm, 
+            CompatibilityMode compatibilityMode)
         {
             _CompatibilityMode = compatibilityMode;
             _DecryptionKeyBlob = KeyDerivator.DeriveKey(decryptionKey, _CompatibilityMode);
 
-            _hasher = HashProvider.Create(KeyDerivator.DeriveKey(validationKey, _CompatibilityMode), hashAlgorithm);
+            _hasher = HashProvider.Create(KeyDerivator.DeriveKey(validationKey, _CompatibilityMode), validationKeyAlgorithm);
         }
 
         /// <summary>
@@ -92,78 +103,70 @@ namespace AspNetCore.FormsAuthentication
         private byte[] EncryptCookieData(byte[] cookieBlob, int length, HashProvider hasher = null)
         {
 
-            using (var aesProvider = Aes.Create())
+            using var aesProvider = Aes.Create();
+            aesProvider.Key = _DecryptionKeyBlob;
+            aesProvider.BlockSize = 128;
+            aesProvider.GenerateIV();
+
+            if (_CompatibilityMode == CompatibilityMode.Framework20SP2)
             {
-                aesProvider.Key = _DecryptionKeyBlob;
-                aesProvider.BlockSize = 128;
-                aesProvider.GenerateIV();
+                aesProvider.IV = new byte[aesProvider.IV.Length];
+                aesProvider.Mode = CipherMode.CBC;
+            }
+            else if (hasher != null)
+            {
+                aesProvider.IV = hasher.GetIVHash(cookieBlob, aesProvider.IV.Length);
+            }
 
-                if (_CompatibilityMode == CompatibilityMode.Framework20SP2)
-                {
-                    aesProvider.IV = new byte[aesProvider.IV.Length];
-                    aesProvider.Mode = CipherMode.CBC;
-                }
-                else if (hasher != null)
-                {
-                    aesProvider.IV = hasher.GetIVHash(cookieBlob, aesProvider.IV.Length);
-                }
+            var decryptor = aesProvider.CreateEncryptor();
 
-                var decryptor = aesProvider.CreateEncryptor();
+            using var ms = new MemoryStream();
+            // first write the iv.
+            if (_CompatibilityMode != CompatibilityMode.Framework20SP2)
+            {
+                ms.Write(aesProvider.IV, 0, aesProvider.IV.Length);
+            }
 
-                using (var ms = new MemoryStream())
+            using var cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Write);
+            bool sign = false;
+            if (_CompatibilityMode == CompatibilityMode.Framework20SP2)
+            {
+                bool createIv = true;
+                bool useRandomIv = true;
+
+                if (createIv)
                 {
+                    int ivLength = RoundupNumBitsToNumBytes(aesProvider.KeySize);
+                    byte[] iv = null;
+
+                    if (hasher != null)
+                    {
+                        iv = hasher.GetIVHash(cookieBlob, ivLength);
+                    }
+                    else if (useRandomIv)
+                    {
+                        iv = new byte[ivLength];
+                        RandomNumberGenerator.GetBytes(iv);
+                    }
+
                     // first write the iv.
-                    if (_CompatibilityMode != CompatibilityMode.Framework20SP2)
-                    {
-                        ms.Write(aesProvider.IV, 0, aesProvider.IV.Length);
-                    }
-
-                    using (var cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Write))
-                    {
-                        bool sign = false;
-                        if (_CompatibilityMode == CompatibilityMode.Framework20SP2)
-                        {
-                            bool createIv = true;
-                            bool useRandomIv = true;
-
-                            if (createIv)
-                            {
-                                int ivLength = RoundupNumBitsToNumBytes(aesProvider.KeySize);
-                                byte[] iv = null;
-
-                                if (hasher != null)
-                                {
-                                    iv = hasher.GetIVHash(cookieBlob, ivLength);
-                                }
-                                else if (useRandomIv)
-                                {
-                                    iv = new byte[ivLength];
-                                    RandomNumberGenerator.GetBytes(iv);
-                                }
-
-                                // first write the iv.
-                                cs.Write(iv, 0, iv.Length);
-                            }
-                        }
-
-                        // then write ticket data.
-                        cs.Write(cookieBlob, 0, cookieBlob.Length);
-
-                        cs.FlushFinalBlock();
-                        byte[] paddedData = ms.ToArray();
-
-                        if (_CompatibilityMode == CompatibilityMode.Framework20SP2 && sign)
-                        {
-                            throw new NotImplementedException();
-                            // append signature to encrypted bytes.
-                        }
-
-                        return paddedData;
-
-                    }
-
+                    cs.Write(iv, 0, iv.Length);
                 }
             }
+
+            // then write ticket data.
+            cs.Write(cookieBlob, 0, cookieBlob.Length);
+
+            cs.FlushFinalBlock();
+            byte[] paddedData = ms.ToArray();
+
+            if (_CompatibilityMode == CompatibilityMode.Framework20SP2 && sign)
+            {
+                throw new NotImplementedException();
+                // append signature to encrypted bytes.
+            }
+
+            return paddedData;
         }
 
         private byte[] Decrypt(byte[] cookieBlob, HashProvider hasher, bool isHashAppended)
@@ -185,61 +188,53 @@ namespace AspNetCore.FormsAuthentication
             }
 
             // Now decrypt the encrypted cookie data.
-            using (var aesProvider = Aes.Create())
+            using var aesProvider = Aes.Create();
+            aesProvider.Key = _DecryptionKeyBlob;
+            aesProvider.BlockSize = 128;
+            if (_CompatibilityMode == CompatibilityMode.Framework20SP2)
             {
-                aesProvider.Key = _DecryptionKeyBlob;
-                aesProvider.BlockSize = 128;
-                if (_CompatibilityMode == CompatibilityMode.Framework20SP2)
-                {
-                    aesProvider.GenerateIV();
-                    aesProvider.IV = new byte[aesProvider.IV.Length];
-                    aesProvider.Mode = CipherMode.CBC;
-                }
-                else
-                {
-                    byte[] iv = new byte[aesProvider.IV.Length];
-                    Buffer.BlockCopy(cookieBlob, 0, iv, 0, iv.Length);
-                    aesProvider.IV = iv;
-                }
-
-                using (var ms = new MemoryStream())
-                {
-                    using (var decryptor = aesProvider.CreateDecryptor())
-                    {
-                        using (var cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Write))
-                        {
-                            if (_CompatibilityMode == CompatibilityMode.Framework20SP2)
-                            {
-                                cs.Write(cookieBlob, 0, cookieBlob.Length);
-                            }
-                            else
-                            {
-                                cs.Write(cookieBlob, aesProvider.IV.Length, cookieBlob.Length - aesProvider.IV.Length);
-                            }
-
-                            cs.FlushFinalBlock();
-                            byte[] paddedData = ms.ToArray();
-
-                            if (_CompatibilityMode != CompatibilityMode.Framework20SP2)
-                            {
-                                return paddedData;
-                            }
-
-                            // The data contains some random bytes prepended at the start. Remove them.
-                            int ivLength = RoundupNumBitsToNumBytes(aesProvider.KeySize);
-                            int dataLength = paddedData.Length - ivLength;
-                            if (dataLength < 0)
-                            {
-                                throw new Exception($"Unexpected salt length: {ivLength}. Total: {paddedData.Length}");
-                            }
-
-                            byte[] decryptedData = new byte[dataLength];
-                            Buffer.BlockCopy(paddedData, ivLength, decryptedData, 0, dataLength);
-                            return decryptedData;
-                        }
-                    }
-                }
+                aesProvider.GenerateIV();
+                aesProvider.IV = new byte[aesProvider.IV.Length];
+                aesProvider.Mode = CipherMode.CBC;
             }
+            else
+            {
+                byte[] iv = new byte[aesProvider.IV.Length];
+                Buffer.BlockCopy(cookieBlob, 0, iv, 0, iv.Length);
+                aesProvider.IV = iv;
+            }
+
+            using var ms = new MemoryStream();
+            using var decryptor = aesProvider.CreateDecryptor();
+            using var cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Write);
+            if (_CompatibilityMode == CompatibilityMode.Framework20SP2)
+            {
+                cs.Write(cookieBlob, 0, cookieBlob.Length);
+            }
+            else
+            {
+                cs.Write(cookieBlob, aesProvider.IV.Length, cookieBlob.Length - aesProvider.IV.Length);
+            }
+
+            cs.FlushFinalBlock();
+            byte[] paddedData = ms.ToArray();
+
+            if (_CompatibilityMode != CompatibilityMode.Framework20SP2)
+            {
+                return paddedData;
+            }
+
+            // The data contains some random bytes prepended at the start. Remove them.
+            int ivLength = RoundupNumBitsToNumBytes(aesProvider.KeySize);
+            int dataLength = paddedData.Length - ivLength;
+            if (dataLength < 0)
+            {
+                throw new Exception($"Unexpected salt length: {ivLength}. Total: {paddedData.Length}");
+            }
+
+            byte[] decryptedData = new byte[dataLength];
+            Buffer.BlockCopy(paddedData, ivLength, decryptedData, 0, dataLength);
+            return decryptedData;
         }
 
         internal static int RoundupNumBitsToNumBytes(int numBits)
